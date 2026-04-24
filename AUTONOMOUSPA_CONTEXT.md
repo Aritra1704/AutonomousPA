@@ -49,7 +49,8 @@ logs table
 - result (text)
 - created_at (timestamp)
 
-tasks table (future)
+
+tasks table
 
 - id
 - task
@@ -105,20 +106,26 @@ memory table (future)
 
 🚀 PHASE PLAN
 
-PHASE 1 (CURRENT)
 
-- Fix Railway deployment
-- Ensure Telegram bot responds
-- Ensure Gemini API works
-- Ensure DB logging works
+PHASE 1 (CURRENT — IN PROGRESS)
+
+
+
+
+
+- Fix Railway deployment ⏳
+- Ensure Telegram bot responds ⏳
+- Ensure Gemini API works ✅
+- Ensure DB logging works ⏳
 
 ---
 
-PHASE 2
 
-- Add "/code" command (coding agent)
-- Add structured memory retrieval
-- Add task tracking system
+PHASE 2 ✅ (COMPLETED — 2026-04-24)
+
+- Add "/code" command (coding agent) ✅
+- Add structured memory retrieval ✅
+- Add task tracking system ✅
 
 ---
 
