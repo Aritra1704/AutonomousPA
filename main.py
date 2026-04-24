@@ -50,6 +50,25 @@ def log_to_db(prompt, response):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤖 Assistant is live")
 
+async def code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message_text = update.message.text or ""
+    request_text = message_text.partition(" ")[2].strip()
+
+    if not request_text:
+        await update.message.reply_text("Please provide details after /code to describe the coding task.")
+        return
+
+    gemini_prompt = (
+        "You are an expert software engineer. Provide a concise, code-focused answer.\n"
+        f"Task: {request_text}"
+    )
+
+    reply = call_gemini(gemini_prompt)
+
+    log_to_db(f"/code {request_text}", reply)
+
+    await update.message.reply_text(reply[:4000])  # Telegram limit
+
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
 
@@ -63,6 +82,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("code", code))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 
 app.run_polling()
