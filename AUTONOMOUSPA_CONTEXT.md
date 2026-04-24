@@ -37,6 +37,8 @@ Telegram Bot
 TELEGRAM_BOT_TOKEN=
 GOOGLE_API_KEY=
 DATABASE_URL=
+GMAIL_EMAIL=
+GMAIL_APP_PASSWORD=
 
 ---
 
@@ -56,6 +58,15 @@ tasks table
 - status
 - created_at
 
+email_drafts table
+
+- id
+- recipient
+- subject
+- body
+- notes
+- created_at
+
 memory table (future)
 
 - id
@@ -72,6 +83,7 @@ memory table (future)
 - Supabase DB created ✅
 - Tables created ✅
 - Task commands live ✅
+- Gmail read/draft commands live ✅
 - Railway deployment ❌ (FAILED — needs fix)
 
 ---
@@ -81,6 +93,7 @@ memory table (future)
 - Railway deployment failing (likely start command or runtime issue)
 - DB connection may not be verified
 - Need stable polling process for Telegram bot
+- Gmail IMAP access requires app password + "Allow IMAP" enabled
 
 ---
 
@@ -123,11 +136,11 @@ PHASE 2 ✅ (COMPLETED — 2026-04-24)
 
 ---
 
-PHASE 3
+PHASE 3 (IN PROGRESS)
 
-- Gmail integration (read + draft)
-- Google Calendar integration
-- Notification system
+- Gmail integration (read + draft) ✅
+- Google Calendar integration ⏳
+- Notification system ⏳
 
 ---
 
@@ -160,7 +173,9 @@ User sends message → Telegram
 
 3. Validate DATABASE_URL connection
 
-4. Ensure polling mode is active:
+4. Provide Gmail IMAP credentials (GMAIL_EMAIL + GMAIL_APP_PASSWORD) and enable IMAP in Gmail
+
+5. Ensure polling mode is active:
    app.run_polling()
 
 ---

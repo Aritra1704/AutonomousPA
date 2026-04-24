@@ -1,5 +1,9 @@
 import os
 from datetime import datetime
+import imaplib
+import email
+from email.header import decode_header
+from email.utils import parsedate_to_datetime
 
 import requests
 import psycopg2
@@ -10,6 +14,8 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 SUPABASE_DB_URL = os.getenv("DATABASE_URL")  # use Supabase connection string
+GMAIL_EMAIL = os.getenv("GMAIL_EMAIL")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
 
 # ---- Memory Helpers ----
 def truncate_for_memory(text, limit=800):
@@ -49,38 +55,18 @@ def format_memory_context(entries):
     return "\n".join(lines)
 
 # ---- Gemini Call ----
-def call_gemini(prompt):
+def call_gemini(prompt, memory_entries=None):
+    memory_prefix = format_memory_context(memory_entries)
+    final_prompt = f"{memory_prefix}{prompt}" if memory_prefix else prompt
+
+    if not GEMINI_API_KEY:
+        return "Gemini API key is not configured."
+
     url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
 
     headers = {
         "Content-Type": "application/json"
     }
-
-    params = {
-        "key": GEMINI_API_KEY
-    }
-
-    body = {
-        "contents": [
-            {
-                "parts": [{"text": prompt}]
-            }
-        ]
-    }
-
-    res = requests.post(url, headers=headers, params=params, json=body)
-
-    try:
-        data = res.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-    except:
-        return str(data)
-        
-def call_gemini_old(prompt, memory_entries=None):
-    memory_prefix = format_memory_context(memory_entries)
-    final_prompt = f"{memory_prefix}{prompt}" if memory_prefix else prompt
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
     body = {
         "contents": [
@@ -90,13 +76,23 @@ def call_gemini_old(prompt, memory_entries=None):
         ]
     }
 
-    res = requests.post(url, json=body)
-    data = res.json()
-
     try:
+        res = requests.post(
+            url,
+            headers=headers,
+            params={"key": GEMINI_API_KEY},
+            json=body,
+            timeout=30,
+        )
+        res.raise_for_status()
+        data = res.json()
         return data["candidates"][0]["content"]["parts"][0]["text"]
-    except:
-        return str(data)
+    except requests.RequestException as exc:
+        print("Gemini HTTP error:", exc)
+        return f"Gemini HTTP error: {exc}"
+    except (KeyError, IndexError, TypeError) as exc:
+        print("Gemini parse error:", exc)
+        return f"Gemini parse error: {exc}"
 
 # ---- DB Logging ----
 def log_to_db(prompt, response):
@@ -171,12 +167,215 @@ def format_tasks_list(tasks):
         lines.append(f"{task_id} [{status}] {task_text} — {created_at_str}")
     return "\n".join(lines)
 
+# ---- Gmail Helpers ----
+def decode_mime_words(value):
+    if not value:
+        return ""
+    decoded = decode_header(value)
+    parts = []
+    for text, encoding in decoded:
+        if isinstance(text, bytes):
+            parts.append(text.decode(encoding or "utf-8", errors="replace"))
+        else:
+            parts.append(text)
+    return "".join(parts)
+
+
+def extract_plain_text(message):
+    if message.is_multipart():
+        for part in message.walk():
+            content_type = part.get_content_type()
+            content_disposition = str(part.get("Content-Disposition") or "")
+            if content_type == "text/plain" and "attachment" not in content_disposition:
+                charset = part.get_content_charset() or "utf-8"
+                payload = part.get_payload(decode=True)
+                if payload is None:
+                    continue
+                try:
+                    return payload.decode(charset, errors="replace")
+                except Exception:
+                    return payload.decode("utf-8", errors="replace")
+    else:
+        payload = message.get_payload(decode=True)
+        if payload is not None:
+            charset = message.get_content_charset() or "utf-8"
+            try:
+                return payload.decode(charset, errors="replace")
+            except Exception:
+                return payload.decode("utf-8", errors="replace")
+        payload = message.get_payload()
+        if isinstance(payload, str):
+            return payload
+    return ""
+
+
+def fetch_gmail_messages(limit=5):
+    if not GMAIL_EMAIL or not GMAIL_APP_PASSWORD:
+        print("Gmail credentials missing.")
+        return []
+
+    limit = max(1, min(limit, 20))
+    imap = None
+    try:
+        imap = imaplib.IMAP4_SSL("imap.gmail.com")
+        imap.login(GMAIL_EMAIL, GMAIL_APP_PASSWORD)
+        imap.select("INBOX")
+        status, data = imap.search(None, "UNSEEN")
+        if status != "OK" or not data or not data[0]:
+            status, data = imap.search(None, "ALL")
+        if status != "OK" or not data or not data[0]:
+            return []
+
+        mail_ids = data[0].split()
+        selected_ids = mail_ids[-limit:]
+        messages = []
+        for msg_id in reversed(selected_ids):
+            status, msg_data = imap.fetch(msg_id, "(RFC822)")
+            if status != "OK" or not msg_data:
+                continue
+            raw_email = msg_data[0][1]
+            message = email.message_from_bytes(raw_email)
+            subject = decode_mime_words(message.get("Subject"))
+            sender = decode_mime_words(message.get("From"))
+            date_raw = message.get("Date")
+
+            try:
+                date_obj = parsedate_to_datetime(date_raw) if date_raw else None
+                if date_obj and date_obj.tzinfo:
+                    date_obj = date_obj.astimezone()
+            except Exception:
+                date_obj = None
+
+            date_display = date_obj.strftime("%Y-%m-%d %H:%M") if isinstance(date_obj, datetime) else (date_raw or "")
+            body = extract_plain_text(message)
+            snippet = " ".join(body.split())[:200] if body else ""
+
+            messages.append(
+                {
+                    "subject": subject or "(no subject)",
+                    "sender": sender or "(unknown sender)",
+                    "date": date_display,
+                    "snippet": snippet,
+                }
+            )
+        return messages
+    except Exception as exc:
+        print("Gmail fetch error:", exc)
+        return []
+    finally:
+        if imap is not None:
+            try:
+                imap.close()
+            except Exception:
+                pass
+            try:
+                imap.logout()
+            except Exception:
+                pass
+
+
+def save_email_draft_to_db(recipient, subject, body, notes):
+    if not SUPABASE_DB_URL:
+        print("Draft insert skipped: DATABASE_URL not configured.")
+        return None
+
+    try:
+        conn = psycopg2.connect(SUPABASE_DB_URL)
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO email_drafts (recipient, subject, body, notes) VALUES (%s, %s, %s, %s) RETURNING id, created_at",
+            (recipient, subject, body, notes),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        return row
+    except Exception as e:
+        print("Draft insert error:", e)
+        return None
+
 # ---- Handlers ----
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Assistant is live.\n"
-        "Use /code for coding help, /task to add a task, and /tasks to review recent tasks."
+        "Use /code for coding help, /task to add a task, /tasks to review tasks,\n"
+        "/gmail to fetch recent emails, and /draft to generate an email draft."
     )
+
+async def gmail_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message_text = update.message.text or ""
+    limit_text = message_text.partition(" ")[2].strip()
+
+    limit = 5
+    if limit_text.isdigit():
+        limit = max(1, min(int(limit_text), 20))
+
+    emails = fetch_gmail_messages(limit=limit)
+    if not emails:
+        reply = (
+            "No emails retrieved. Confirm Gmail credentials and IMAP access "
+            "are configured."
+        )
+    else:
+        lines = ["Recent Gmail messages:"]
+        for idx, message_data in enumerate(emails, start=1):
+            lines.append(f"{idx}. {message_data['subject']}")
+            lines.append(f"   From: {message_data['sender']}")
+            if message_data["date"]:
+                lines.append(f"   Date: {message_data['date']}")
+            if message_data["snippet"]:
+                lines.append(f"   Snippet: {message_data['snippet']}")
+        reply = "\n".join(lines)
+
+    log_to_db(f"/gmail limit={limit}", reply)
+    await update.message.reply_text(reply[:4000])
+
+async def draft_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message_text = update.message.text or ""
+    payload = message_text.partition(" ")[2]
+
+    if not payload:
+        await update.message.reply_text(
+            "Usage: /draft recipient@example.com | Subject | brief instructions"
+        )
+        return
+
+    parts = [part.strip() for part in payload.split("|", 2)]
+    if len(parts) < 3 or not all(parts):
+        await update.message.reply_text(
+            "Please provide recipient, subject, and instructions separated by '|'."
+        )
+        return
+
+    recipient, subject, instructions = parts
+
+    gemini_prompt = (
+        "Compose a clear, professional email draft.\n"
+        f"Recipient: {recipient}\n"
+        f"Subject: {subject}\n"
+        f"Instructions: {instructions}\n"
+        "Include greeting, body, and courteous closing with sender placeholder."
+    )
+
+    memory_entries = fetch_recent_logs(limit=5)
+    draft_body = call_gemini(gemini_prompt, memory_entries=memory_entries)
+
+    draft_row = save_email_draft_to_db(recipient, subject, draft_body, instructions)
+    if draft_row:
+        draft_id, created_at = draft_row
+        if isinstance(created_at, datetime):
+            created_at_str = created_at.strftime("%Y-%m-%d %H:%M")
+        else:
+            created_at_str = str(created_at)
+        header = f"Draft #{draft_id} saved ({created_at_str})."
+    else:
+        header = "Draft generated (not saved due to database issue)."
+
+    reply = f"{header}\n\n{draft_body}"
+    log_to_db(f"/draft {recipient} | {subject}", draft_body)
+
+    await update.message.reply_text(reply[:4000])
 
 async def task_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text or ""
@@ -251,6 +450,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("gmail", gmail_command))
+app.add_handler(CommandHandler("draft", draft_command))
 app.add_handler(CommandHandler("task", task_command))
 app.add_handler(CommandHandler("tasks", tasks_command))
 app.add_handler(CommandHandler("code", code))
