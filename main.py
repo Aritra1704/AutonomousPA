@@ -9,14 +9,54 @@ GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 SUPABASE_DB_URL = os.getenv("DATABASE_URL")  # use Supabase connection string
 
+# ---- Memory Helpers ----
+def truncate_for_memory(text, limit=800):
+    if text is None:
+        return ""
+    text = str(text)
+    return text if len(text) <= limit else text[:limit] + "..."
+
+def fetch_recent_logs(limit=5):
+    if not SUPABASE_DB_URL:
+        return []
+
+    try:
+        conn = psycopg2.connect(SUPABASE_DB_URL)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT action, result FROM logs ORDER BY created_at DESC LIMIT %s",
+            (limit,),
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return list(reversed(rows))
+    except Exception as e:
+        print("DB fetch error:", e)
+        return []
+
+def format_memory_context(entries):
+    if not entries:
+        return ""
+
+    lines = ["Context from recent interactions:"]
+    for idx, (action, result) in enumerate(entries, start=1):
+        lines.append(f"{idx}. User: {truncate_for_memory(action)}")
+        lines.append(f"   Assistant: {truncate_for_memory(result)}")
+    lines.append("")
+    return "\n".join(lines)
+
 # ---- Gemini Call ----
-def call_gemini(prompt):
+def call_gemini(prompt, memory_entries=None):
+    memory_prefix = format_memory_context(memory_entries)
+    final_prompt = f"{memory_prefix}{prompt}" if memory_prefix else prompt
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
     body = {
         "contents": [
             {
-                "parts": [{"text": prompt}]
+                "parts": [{"text": final_prompt}]
             }
         ]
     }
@@ -63,7 +103,8 @@ async def code(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Task: {request_text}"
     )
 
-    reply = call_gemini(gemini_prompt)
+    memory_entries = fetch_recent_logs(limit=5)
+    reply = call_gemini(gemini_prompt, memory_entries=memory_entries)
 
     log_to_db(f"/code {request_text}", reply)
 
@@ -72,7 +113,8 @@ async def code(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
 
-    reply = call_gemini(user_text)
+    memory_entries = fetch_recent_logs(limit=5)
+    reply = call_gemini(user_text, memory_entries=memory_entries)
 
     log_to_db(user_text, reply)
 

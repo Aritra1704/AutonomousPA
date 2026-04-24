@@ -23,7 +23,7 @@ Telegram Bot
 
 ⚙️ TECH STACK
 
-- Language: Python 3.11
+- Language: Python 3.12
 - Framework: python-telegram-bot
 - LLM: Google Gemini (gemini-1.5-flash)
 - DB: Supabase (Postgres)
