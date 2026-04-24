@@ -49,7 +49,6 @@ logs table
 - result (text)
 - created_at (timestamp)
 
-
 tasks table
 
 - id
@@ -72,6 +71,7 @@ memory table (future)
 - Gemini API key created ✅
 - Supabase DB created ✅
 - Tables created ✅
+- Task commands live ✅
 - Railway deployment ❌ (FAILED — needs fix)
 
 ---
@@ -106,12 +106,7 @@ memory table (future)
 
 🚀 PHASE PLAN
 
-
 PHASE 1 (CURRENT — IN PROGRESS)
-
-
-
-
 
 - Fix Railway deployment ⏳
 - Ensure Telegram bot responds ⏳
@@ -119,7 +114,6 @@ PHASE 1 (CURRENT — IN PROGRESS)
 - Ensure DB logging works ⏳
 
 ---
-
 
 PHASE 2 ✅ (COMPLETED — 2026-04-24)
 

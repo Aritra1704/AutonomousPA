@@ -49,7 +49,34 @@ def format_memory_context(entries):
     return "\n".join(lines)
 
 # ---- Gemini Call ----
-def call_gemini(prompt, memory_entries=None):
+def call_gemini(prompt):
+    url = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    params = {
+        "key": GEMINI_API_KEY
+    }
+
+    body = {
+        "contents": [
+            {
+                "parts": [{"text": prompt}]
+            }
+        ]
+    }
+
+    res = requests.post(url, headers=headers, params=params, json=body)
+
+    try:
+        data = res.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    except:
+        return str(data)
+        
+def call_gemini_old(prompt, memory_entries=None):
     memory_prefix = format_memory_context(memory_entries)
     final_prompt = f"{memory_prefix}{prompt}" if memory_prefix else prompt
 
