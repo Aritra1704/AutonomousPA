@@ -23,8 +23,8 @@ Telegram Bot
 
 ⚙️ TECH STACK
 
-- Language: Python 3.12
-- Framework: python-telegram-bot
+- Language: Python 3.12 (pinned via .python-version and Railway PYTHON_VERSION=3.12)
+- Framework: python-telegram-bot==21.5
 - LLM: Google Gemini (gemini-1.5-flash)
 - DB: Supabase (Postgres)
 - Hosting: Railway
@@ -155,7 +155,7 @@ User sends message → Telegram
    - Ensure correct start command:
      python main.py
 
-2. Ensure requirements.txt installed
+2. Ensure requirements.txt installed (includes python-telegram-bot==21.5 and Python 3.12 runtime expectations)
 
 3. Validate DATABASE_URL connection
 
